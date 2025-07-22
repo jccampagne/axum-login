@@ -1,10 +1,12 @@
 use axum::http::header::{AUTHORIZATION, USER_AGENT};
 use axum_login::{AuthUser, AuthnBackend, UserId};
 use oauth2::{
-    basic::{BasicClient, BasicRequestTokenError},
-    reqwest::{async_http_client, AsyncHttpClientError},
+    basic::BasicRequestTokenError,
+    // reqwest::{async_http_client, AsyncHttpClientError},
     url::Url,
-    AuthorizationCode, CsrfToken, TokenResponse,
+    AuthorizationCode,
+    CsrfToken,
+    TokenResponse,
 };
 use password_auth::verify_password;
 use serde::{Deserialize, Serialize};
@@ -78,7 +80,7 @@ struct UserInfo {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum BackendError {
+pub enum BackendError<'a> {
     #[error(transparent)]
     Sqlx(sqlx::Error),
 
@@ -86,7 +88,7 @@ pub enum BackendError {
     Reqwest(reqwest::Error),
 
     #[error(transparent)]
-    OAuth2(BasicRequestTokenError<AsyncHttpClientError>),
+    OAuth2(BasicRequestTokenError<<reqwest::Client as oauth2::AsyncHttpClient<'a>>::Error>),
 
     #[error(transparent)]
     TaskJoin(#[from] task::JoinError),
@@ -95,11 +97,26 @@ pub enum BackendError {
 #[derive(Debug, Clone)]
 pub struct Backend {
     db: SqlitePool,
-    client: BasicClient,
+    client: TheClient,
 }
+pub type TheClient = oauth2::Client<
+    oauth2::StandardErrorResponse<oauth2::basic::BasicErrorResponseType>,
+    oauth2::StandardTokenResponse<oauth2::EmptyExtraTokenFields, oauth2::basic::BasicTokenType>,
+    oauth2::StandardTokenIntrospectionResponse<
+        oauth2::EmptyExtraTokenFields,
+        oauth2::basic::BasicTokenType,
+    >,
+    oauth2::StandardRevocableToken,
+    oauth2::StandardErrorResponse<oauth2::RevocationErrorResponseType>,
+    oauth2::EndpointSet,
+    oauth2::EndpointNotSet,
+    oauth2::EndpointNotSet,
+    oauth2::EndpointNotSet,
+    oauth2::EndpointSet,
+>;
 
 impl Backend {
-    pub fn new(db: SqlitePool, client: BasicClient) -> Self {
+    pub fn new(db: SqlitePool, client: TheClient) -> Self {
         Self { db, client }
     }
 
@@ -111,7 +128,7 @@ impl Backend {
 impl AuthnBackend for Backend {
     type User = User;
     type Credentials = Credentials;
-    type Error = BackendError;
+    type Error = BackendError<'static>;
 
     async fn authenticate(
         &self,
@@ -148,11 +165,17 @@ impl AuthnBackend for Backend {
                     return Ok(None);
                 };
 
+                let http_client = reqwest::ClientBuilder::new()
+                    // Following redirects opens the client up to SSRF vulnerabilities.
+                    .redirect(reqwest::redirect::Policy::none())
+                    .build()
+                    .expect("Client should build");
+
                 // Process authorization code, expecting a token response back.
                 let token_res = self
                     .client
                     .exchange_code(AuthorizationCode::new(oauth_creds.code))
-                    .request_async(async_http_client)
+                    .request_async(&http_client)
                     .await
                     .map_err(Self::Error::OAuth2)?;
 

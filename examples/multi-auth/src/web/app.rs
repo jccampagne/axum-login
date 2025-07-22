@@ -16,7 +16,7 @@ use crate::{
 
 pub struct App {
     db: SqlitePool,
-    client: BasicClient,
+    client: crate::users::TheClient,
 }
 
 impl App {
@@ -32,7 +32,14 @@ impl App {
 
         let auth_url = AuthUrl::new("https://github.com/login/oauth/authorize".to_string())?;
         let token_url = TokenUrl::new("https://github.com/login/oauth/access_token".to_string())?;
-        let client = BasicClient::new(client_id, Some(client_secret), auth_url, Some(token_url));
+        // let client = BasicClient::new(client_id, Some(client_secret), auth_url, Some(token_url));
+        let client = BasicClient::new(client_id);
+        let client = client
+            .set_client_secret(client_secret)
+            .set_auth_uri(auth_url)
+            .set_token_uri(token_url)
+            // Set the URL the user will be redirected to after the authorization process.
+            .set_redirect_uri(oauth2::RedirectUrl::new("http://127.0.0.1:3000/oauth/callback".to_string())?);
 
         let db = SqlitePool::connect(":memory:").await?;
         sqlx::migrate!().run(&db).await?;

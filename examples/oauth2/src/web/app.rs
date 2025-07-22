@@ -30,8 +30,8 @@ impl App {
             .map(ClientSecret::new)
             .expect("CLIENT_SECRET should be provided");
 
-        let auth_url = AuthUrl::new("https://github.com/login/oauth/authorize".to_string())?;
-        let token_url = TokenUrl::new("https://github.com/login/oauth/access_token".to_string())?;
+        let auth_url = AuthUrl::new("https://accounts.google.com/o/oauth2/v2/auth".to_string())?;
+        let token_url = TokenUrl::new("https://oauth2.googleapis.com/token".to_string())?;
         let client = BasicClient::new(client_id, Some(client_secret), auth_url, Some(token_url));
 
         let db = SqlitePool::connect(":memory:").await?;
